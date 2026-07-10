@@ -1,3 +1,13 @@
 ;; Real-world organization location / contact.
 ;; :head-role is institutional title only — no personal names.
-{:contact-page "https://home.treasury.gov/", :ooyake-id "gov.usa.treasury", :sourced-from "com-etzhayyim-ooyake gov-units (verbatim where present)", :head-role-note "institutional office title only; personal names of current office-holders are intentionally NOT stored", :official-url "https://home.treasury.gov/", :head-role "Secretary of the Treasury", :hq {:last-verified "2026-06-02", :phone "+1-202-622-2000", :line-en "1500 Pennsylvania Avenue NW, Washington, DC 20220", :line-local "1500 Pennsylvania Avenue NW, Washington, DC", :postal-code "20220", :kind "headquarters", :provenance "https://home.treasury.gov/", :hours "Mon-Fri 9:00-17:00 ET", :sourcing "representative", :country "usa"}, :wikidata "Q648666", :name-en "Department of the Treasury", :name-local "Department of the Treasury"}
+{:ooyake-id "gov.usa.treasury"
+  :official-url "https://home.treasury.gov/"
+  :name-en "Department of the Treasury"
+  :name-local "Department of the Treasury"
+  :wikidata "Q648666"
+  :head-role "Secretary of the Treasury"
+  :head-role-note "institutional office title only; personal names of current office-holders are intentionally NOT stored"
+  :contact-page "https://home.treasury.gov/"
+  :sourced-from "com-etzhayyim-ooyake gov-units (verbatim where present)"
+  :hq {:postal-code "20220" :line-local "1500 Pennsylvania Avenue NW, Washington, DC" :line-en "1500 Pennsylvania Avenue NW, Washington, DC 20220" :country "usa" :phone "+1-202-622-2000" :hours "Mon-Fri 9:00-17:00 ET" :kind "headquarters" :provenance "https://home.treasury.gov/" :last-verified "2026-06-02" :sourcing "representative"}
+}
