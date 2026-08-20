@@ -1,0 +1,321 @@
+(ns statute.facts-test
+  "Offline invariants for the USA-TREASURY compliance catalog.
+
+  These tests deliberately do NOT reach the network -- that is
+  `tools/verify_citations.cljs`, which re-fetches the eCFR APIs and is the only
+  thing that can tell you whether a citation is still true. What these tests
+  pin is the shape the live gate depends on: if the catalog stops carrying the
+  fields the gate reads, the gate degrades into checking less and still exits
+  0, which is the failure mode where a green light means nothing.
+
+  So the load-bearing tests here are the ones that would let the live gate
+  quietly check less:
+    * every entry carries the node path, label and title the gate walks;
+    * every absence carries a control, without which a scan of the wrong tree
+      or an empty document confirms the absence for free;
+    * the sections whose text this leaf's advice rests on carry the NUMBER of
+      quotes their claims need, not merely one -- because
+      `:statute/verified-quotes` is a vector, dropping a span from it shrinks
+      the gate without tripping any floor;
+    * the catalog does not fall below the floors the gate enforces."
+  (:require [clojure.test :refer [deftest is testing]]
+            [clojure.string :as str]
+            [statute.facts :as f]))
+
+(def all (f/entries))
+
+(def hats #{:acquirer :grantor :tax-administrator :practice-regulator
+            :financial-regulator :elsewhere :stale-label
+            :far-baseline :assistance-baseline})
+
+;; ---------------------------------------------------------------------------
+;; The catalog exists and is not vacuous.
+
+(deftest catalog-is-not-empty
+  (testing "a catalog that shrank to nothing must fail here, not pass silently"
+    (is (seq all))
+    (is (>= (count all) 38)
+        "the live gate's default --min is 38 headings; if the catalog drops
+         below that the gate reports could-not-answer, so failing here first
+         gives a better message")))
+
+(deftest catalog-key-is-the-blueprint-key
+  (is (= #{"USA-TREASURY"} (set (keys f/catalog)))
+      "this leaf carries exactly one ISO key and it must match blueprint.edn"))
+
+(deftest ids-are-unique
+  (let [ids (map :statute/id all)]
+    (is (= (count ids) (count (distinct ids)))
+        (str "duplicate :statute/id -- "
+             (pr-str (map key (filter #(> (val %) 1) (frequencies ids))))))))
+
+;; ---------------------------------------------------------------------------
+;; Every field the live gate reads is present on every entry.
+
+(deftest every-entry-has-what-the-gate-walks
+  (doseq [e all]
+    (testing (str (:statute/id e))
+      (is (keyword? (:statute/id e)))
+      (is (string? (:statute/title e)))
+      (is (integer? (:statute/cfr-title e)))
+      (is (vector? (:statute/cfr-node e)))
+      (is (seq (:statute/cfr-node e))
+          "an empty node path resolves to the title root and would confirm
+           whatever label happens to be there")
+      (is (every? (fn [step]
+                    (and (vector? step) (= 2 (count step))
+                         (every? string? step)))
+                  (:statute/cfr-node e))
+          "each step must be [type identifier], both strings")
+      (is (string? (:statute/verified-label e)))
+      (is (not (str/blank? (:statute/verified-label e)))
+          "a blank recorded label would match a node whose label is missing")
+      (is (string? (:statute/verified-at e)))
+      (is (contains? hats (:statute/hat e))
+          (str "unknown hat " (pr-str (:statute/hat e))
+               " -- the hat is how a reader tells which Treasury they are
+                dealing with, so a new one must be declared deliberately")))))
+
+(deftest every-entry-cites-a-declared-structure-endpoint
+  (doseq [e all]
+    (is (contains? f/ecfr-structure-api (:statute/cfr-title e))
+        (str (:statute/id e) " cites CFR title " (:statute/cfr-title e)
+             " but no structure endpoint is declared for it; the live gate
+              would exit 2 rather than check it"))))
+
+(deftest urls-are-ecfr
+  (doseq [e all]
+    (is (str/starts-with? (:statute/url e) "https://www.ecfr.gov/")
+        (str (:statute/id e) " must cite the official eCFR"))))
+
+;; ---------------------------------------------------------------------------
+;; Quotes. This is where a gate silently shrinks.
+
+(deftest quoted-entries-carry-the-fetch-coordinates
+  (doseq [e (f/quoted-entries)]
+    (testing (str (:statute/id e))
+      (is (string? (:statute/quote-part e))
+          "without :statute/quote-part the gate builds a URL with `part=null`")
+      (is (string? (:statute/quote-section e)))
+      (is (contains? f/ecfr-full-text-api (:statute/cfr-title e))
+          "a quote in a title with no declared full-text endpoint makes the
+           whole run a could-not-answer")
+      (is (vector? (:statute/verified-quotes e))
+          "must be a vector; a bare string would silently become one check
+           where the entry's claims need several")
+      (is (every? #(and (string? %) (not (str/blank? %)))
+                  (:statute/verified-quotes e)))
+      (is (every? #(> (count %) 20) (:statute/verified-quotes e))
+          "a very short span occurs by accident in unrelated text and would
+           keep passing after the sentence it came from was repealed"))))
+
+(deftest entries-without-a-full-text-endpoint-carry-no-quotes
+  (doseq [e all]
+    (when-not (contains? f/ecfr-full-text-api (:statute/cfr-title e))
+      (is (empty? (:statute/verified-quotes e))
+          (str (:statute/id e) " is in title " (:statute/cfr-title e)
+               ", which has no declared full-text endpoint, so it must be
+                heading-only -- otherwise the gate cannot answer at all")))))
+
+(deftest load-bearing-sections-keep-every-span-their-claims-need
+  (testing "each of these sections carries more than one claim this leaf relies
+            on; dropping a span would shrink the live gate without tripping any
+            floor, so the count is pinned here"
+    (doseq [[id n] {:uei/purpose                       2
+                    :irs/identifying-numbers           2
+                    :circular230/definition-of-practice 2
+                    :ofac/records                      2
+                    :fincen/beneficial-ownership       2
+                    :dtar/purpose                      2}]
+      (let [e (first (filter #(= id (:statute/id %)) all))]
+        (is (some? e) (str "entry " id " has gone missing"))
+        (is (= n (count (:statute/verified-quotes e)))
+            (str id " must carry exactly " n " verified spans"))))))
+
+(deftest total-quote-count-meets-the-gate-floor
+  (is (>= (f/quote-count) 15)
+      "the live gate's default --min-quotes is 15"))
+
+;; ---------------------------------------------------------------------------
+;; Absences. A negative that cannot fail is worse than no negative.
+
+(deftest every-absence-has-a-claim-and-a-see-instead
+  (doseq [a f/absences]
+    (testing (str (:absence/id a))
+      (is (keyword? (:absence/id a)))
+      (is (string? (:absence/claim a)))
+      (is (> (count (:absence/claim a)) 100)
+          "an absence with no stated reasoning is a fact nobody can act on")
+      (is (map? (:absence/see-instead a))
+          "every absence must point at what the reader should read instead;
+           the gate also verifies that node's heading, so this doubles as a
+           check that the absence is about a real part of the CFR"))))
+
+(deftest every-absence-carries-exactly-one-kind-of-claim
+  (doseq [a f/absences]
+    (let [kinds (filterv #(contains? a %)
+                         [:absence/absent-part :absence/absent-label
+                          :absence/absent-text])]
+      (is (= 1 (count kinds))
+          (str (:absence/id a) " must make exactly one kind of negative claim,
+                got " (pr-str kinds))))))
+
+(deftest every-absence-has-a-control
+  (testing "this is the test that matters most: without a control, an empty
+            subtree or an empty HTTP body confirms the absence for free, and
+            the gate reports a pass it did not earn"
+    (doseq [a f/absences]
+      (testing (str (:absence/id a))
+        (cond
+          (:absence/absent-part a)
+          (is (string? (get-in a [:absence/control-part :statute/part]))
+              "a part-absence needs a control part that MUST be found in the
+               same subtree")
+          (:absence/absent-label a)
+          (is (string? (get-in a [:absence/control-label :statute/pattern]))
+              "a label-absence needs a control pattern that MUST match")
+          (:absence/absent-text a)
+          (is (string? (get-in a [:absence/control-text :statute/pattern]))
+              "a text-absence needs a control pattern that MUST occur in the
+               very same fetched document"))))))
+
+(deftest control-is-not-the-same-as-the-absent-pattern
+  (doseq [a f/absences]
+    (let [absent  (or (get-in a [:absence/absent-label :statute/pattern])
+                      (get-in a [:absence/absent-text :statute/pattern])
+                      (get-in a [:absence/absent-part :statute/part]))
+          control (or (get-in a [:absence/control-label :statute/pattern])
+                      (get-in a [:absence/control-text :statute/pattern])
+                      (get-in a [:absence/control-part :statute/part]))]
+      (is (not= absent control)
+          (str (:absence/id a) " -- a control identical to the absent pattern
+                can never both match and not match, so the absence could never
+                pass")))))
+
+(deftest absence-patterns-compile
+  (doseq [a f/absences
+          k [[:absence/absent-label :statute/pattern]
+             [:absence/absent-text :statute/pattern]
+             [:absence/control-label :statute/pattern]
+             [:absence/control-text :statute/pattern]]]
+    (when-let [p (get-in a k)]
+      (is (re-pattern p)
+          (str (:absence/id a) " " (pr-str k) " must be a valid regex")))))
+
+(deftest every-absence-scans-a-declared-title
+  (doseq [a f/absences]
+    (let [t (or (get-in a [:absence/absent-part :statute/cfr-title])
+                (get-in a [:absence/absent-label :statute/cfr-title])
+                (get-in a [:absence/absent-text :statute/cfr-title]))]
+      (is (integer? t) (str (:absence/id a) " must name the CFR title it scans"))
+      (is (contains? f/ecfr-structure-api t)
+          (str (:absence/id a) " scans title " t " with no declared endpoint")))))
+
+(deftest text-absences-scan-a-title-with-a-full-text-endpoint
+  (doseq [a f/absences
+          :let [t (get-in a [:absence/absent-text :statute/cfr-title])]
+          :when t]
+    (is (contains? f/ecfr-full-text-api t)
+        (str (:absence/id a) " is a TEXT absence in title " t
+             ", which has no full-text endpoint -- the gate cannot fetch the
+              document it is supposed to scan"))
+    (is (string? (get-in a [:absence/absent-text :statute/part]))
+        "a text absence must name the part to fetch")))
+
+(deftest absence-count-meets-the-gate-floor
+  (is (>= (count f/absences) 4)
+      "the live gate's default --min-absences is 4"))
+
+;; ---------------------------------------------------------------------------
+;; The findings themselves. These pin the catalog's actual claims, so that
+;; quietly dropping one of them breaks a test rather than merely making the
+;; leaf less useful.
+
+(deftest the-central-correction-is-present
+  (testing "this leaf exists to correct its own blueprint: the EIN is not an
+            award-eligibility credential. Both halves of that correction must
+            stay in the catalog"
+    (let [a (first (filter #(= :treasury/no-taxpayer-identifier-in-assistance-rules
+                               (:absence/id %))
+                           f/absences))]
+      (is (some? a) "the taxpayer-identifier absence is the leaf's core finding")
+      (let [p (get-in a [:absence/absent-text :statute/pattern])]
+        (doseq [term ["taxpayer" "employer identification" "TIN" "EIN"]]
+          (is (str/includes? p term)
+              (str "the absence must still scan for " (pr-str term)
+                   " -- narrowing this pattern would let the claim pass while
+                    the words it denies are present")))))
+    (is (some? (first (filter #(= :treasury/no-practice-rules-in-title-26
+                                  (:absence/id %))
+                              f/absences)))
+        "the Circular 230 absence is what makes this leaf's own business model
+         a regulated activity; without it the catalog is advice with no
+         licensing question in it")))
+
+(deftest the-contract-side-counterweight-is-present
+  (testing "recording only the assistance-side absence would over-state it into
+            `the EIN never matters`, which is false"
+    (is (some? (first (filter #(= :far/taxpayer-identification (:statute/id %))
+                              all)))
+        "FAR subpart 4.9 must stay: it is where the taxpayer identifier does
+         matter, and it is what makes the finding a distinction")))
+
+(deftest every-hat-is-worn-by-something
+  (testing "a hat nobody wears is a taxonomy that outgrew the catalog"
+    (doseq [h hats]
+      (is (seq (f/by-hat h))
+          (str "no entry wears " h)))))
+
+(deftest treasury-spans-five-titles
+  (is (= [2 12 26 31 48] (f/titles-covered))
+      "the count of titles is one of this catalog's findings; if it changes,
+       the ns docstring's claim changes with it"))
+
+(deftest stale-labels-are-marked-not-silently-carried
+  (testing "31 CFR still labels chapters IV and VII, and part 8, for functions
+            that no longer report to Treasury. They are recorded byte-exactly,
+            but under a hat that warns the reader"
+    (let [stale (f/by-hat :stale-label)]
+      (is (>= (count stale) 3))
+      (doseq [e stale]
+        (is (str/includes? (str/lower-case (:statute/note e)) "heading")
+            (str (:statute/id e) " must say in its note that the heading is a
+                  filing location rather than an org chart -- the whole point
+                  of this hat is that the recorded label is NOT a current fact
+                  about ownership"))))))
+
+(deftest accessors-agree-with-the-catalog
+  (is (= (count all) (count (mapcat val f/catalog))))
+  (is (= (f/quote-count)
+         (reduce + 0 (map #(count (:statute/verified-quotes %)) (f/quoted-entries))))
+      "quote-count must not drift from the entries it summarises -- the live
+       gate's floor is compared against numbers derived the same way"))
+
+;; ---------------------------------------------------------------------------
+;; The README quotes numbers out of this catalog. Numbers in prose drift
+;; silently -- nothing recomputes them and no reader can tell -- so they are
+;; pinned here against the data they describe.
+
+(deftest readme-counts-match-the-catalog
+  (let [readme (slurp "README.md")
+        n-entries  (count all)
+        n-quotes   (f/quote-count)
+        n-absences (count f/absences)
+        n-titles   (count (f/titles-covered))]
+    (testing "entry count"
+      (is (str/includes? readme (str n-entries " regulatory anchors"))
+          (str "README must say " n-entries " regulatory anchors")))
+    (testing "quote count"
+      (is (str/includes? readme (str n-quotes " byte-exact quotes"))
+          (str "README must say " n-quotes " byte-exact quotes")))
+    (testing "absence count"
+      (is (str/includes? readme (str n-absences " checked absences"))
+          (str "README must say " n-absences " checked absences")))
+    ;; The list is checked rather than the count: it is strictly stronger
+    ;; (it pins WHICH titles, not merely how many) and it leaves the prose free
+    ;; to spell the number out.
+    (testing "the titles themselves"
+      (is (str/includes? readme
+                         (str "(" (str/join ", " (f/titles-covered)) ")"))
+          "README must list the CFR titles this catalog actually cites")
+      (is (pos? n-titles)))))
