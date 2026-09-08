@@ -19,7 +19,7 @@
       the gate without tripping any floor;
     * the catalog does not fall below the floors the gate enforces."
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [statute.facts :as f]))
 
 (def all (f/entries))
@@ -278,7 +278,7 @@
     (let [stale (f/by-hat :stale-label)]
       (is (>= (count stale) 3))
       (doseq [e stale]
-        (is (str/includes? (str/lower-case (:statute/note e)) "heading")
+        (is (str/includes? (str/lower (:statute/note e)) "heading")
             (str (:statute/id e) " must say in its note that the heading is a
                   filing location rather than an org chart -- the whole point
                   of this hat is that the recorded label is NOT a current fact
