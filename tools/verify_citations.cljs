@@ -61,7 +61,7 @@
 ;;                                   [--min-absences N] [--gap-ms N] [--quiet]
 
 (ns verify-citations
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [clojure.edn :as edn]
             ["fs" :as fs]
             ["path" :as path]))
