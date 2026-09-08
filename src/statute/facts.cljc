@@ -114,7 +114,7 @@
   to retain transaction records `for at least 10 years` -- a duty owed to a
   Treasury bureau by parties who are neither its contractors nor its
   grantees."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 ;; ---------------------------------------------------------------------------
 ;; Verification endpoints.
