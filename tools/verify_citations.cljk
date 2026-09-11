@@ -1,5 +1,5 @@
 #!/usr/bin/env nbb
-;; Live gate for `src/statute/facts.cljc`.
+;; Live gate for `src/statute/facts.cljk`.
 ;;
 ;; Re-fetches the official eCFR APIs and checks five things:
 ;;
@@ -57,7 +57,7 @@
 ;; "Nothing was checked" and "nothing was wrong" must not share an exit code.
 ;;
 ;; Usage:
-;;   nbb tools/verify_citations.cljs [--min N] [--min-quotes N]
+;;   nbb tools/verify_citations.cljk [--min N] [--min-quotes N]
 ;;                                   [--min-absences N] [--gap-ms N] [--quiet]
 
 (ns verify-citations

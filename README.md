@@ -18,7 +18,7 @@ regulatory compliance, composing with the country coordinator
 
 ## The verified catalog
 
-`src/statute/facts.cljc` is the spec-basis: **40 regulatory anchors across five
+`src/statute/facts.cljk` is the spec-basis: **40 regulatory anchors across five
 CFR titles (2, 12, 26, 31, 48), 18 byte-exact quotes of live regulation text,
 and 4 checked absences.** Every heading is the byte-exact `label_description`
 returned by the official eCFR versioner API, and every quote is a byte-exact
@@ -26,7 +26,7 @@ span of the section text returned by the same API, both pinned to the
 `2026-08-18` snapshot.
 
 ```bash
-nbb tools/verify_citations.cljs     # live gate: re-fetches eCFR, exits 0/1/2
+nbb tools/verify_citations.cljk     # live gate: re-fetches eCFR, exits 0/1/2
 clojure -M:test                     # offline invariants (24 tests)
 clojure -M:lint
 ```
