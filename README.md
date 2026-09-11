@@ -26,9 +26,9 @@ span of the section text returned by the same API, both pinned to the
 `2026-08-18` snapshot.
 
 ```bash
-nbb tools/verify_citations.cljk     # live gate: re-fetches eCFR, exits 0/1/2
-clojure -M:test                     # offline invariants (24 tests)
-clojure -M:lint
+kbb --backend sci tools/verify_citations.cljk     # live gate: re-fetches eCFR, exits 0/1/2
+kbb -M:test                     # offline invariants (24 tests)
+kbb -M:lint
 ```
 
 The live gate distinguishes three outcomes on purpose:
