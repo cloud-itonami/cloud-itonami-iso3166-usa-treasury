@@ -18,7 +18,7 @@
       `:statute/verified-quotes` is a vector, dropping a span from it shrinks
       the gate without tripping any floor;
     * the catalog does not fall below the floors the gate enforces."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.lang.text :as str]
             [statute.facts :as f]))
 
